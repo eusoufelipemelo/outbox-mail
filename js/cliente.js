@@ -1111,9 +1111,20 @@ window.Cliente = (function () {
         const atual = document.getElementById('k-atual').value;
         const nova = document.getElementById('k-nova').value;
         const u = Auth.atual();
+        if (nova.length < 8) return UI.toast('err', 'Senha curta', 'Use no mínimo 8 caracteres.');
+
+        if (window.Supa && Supa.ativo) {
+          /* confere a senha atual reautenticando e então atualiza no Auth */
+          const conf = await Supa.client.auth.signInWithPassword({ email: u.email, password: atual });
+          if (conf.error) return UI.toast('err', 'Senha atual incorreta', 'Verifique e tente novamente.');
+          const upd = await Supa.client.auth.updateUser({ password: nova });
+          if (upd.error) return UI.toast('err', 'Não foi possível trocar', upd.error.message);
+          fs.reset();
+          return UI.toast('ok', 'Senha alterada', 'Sua nova senha já está valendo.');
+        }
+
         const atualHash = await OB.hashSenha(atual);
         if (u.senha !== atualHash && u.senha !== atual) return UI.toast('err', 'Senha atual incorreta', 'Verifique e tente novamente.');
-        if (nova.length < 8) return UI.toast('err', 'Senha curta', 'Use no mínimo 8 caracteres.');
         OB.atualizar('usuarios', u.id, { senha: await OB.hashSenha(nova) });
         fs.reset();
         UI.toast('ok', 'Senha alterada', 'Use a nova senha no próximo acesso.');

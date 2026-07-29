@@ -5,8 +5,21 @@
    ============================================================ */
 window.Auth = (function () {
   let usuario = null;
+  const nuvem = () => (window.Supa && Supa.ativo);
 
-  function restaurar() {
+  /* Restaura a sessão no boot. Em nuvem, valida com o Supabase e
+     hidrata o cache; em demo, lê a sessão local. É assíncrona. */
+  async function restaurar() {
+    if (nuvem()) {
+      try {
+        const sess = await Supa.sessao();
+        if (sess) {
+          usuario = await Supa.perfil(sess.user.id);
+          if (usuario) await Supa.hidratar();
+        } else { usuario = null; }
+      } catch (e) { console.warn('Falha ao restaurar sessão', e); usuario = null; }
+      return usuario;
+    }
     const id = OB.sessao.ler();
     usuario = id ? (OB.q.usuarioPorId(id) || null) : null;
     return usuario;
@@ -16,6 +29,14 @@ window.Auth = (function () {
   const conta = () => (usuario && usuario.conta_id ? OB.q.contaPorId(usuario.conta_id) : null);
 
   async function entrar(email, senha) {
+    if (nuvem()) {
+      const r = await Supa.entrar(email, senha);
+      if (r.erro) return { erro: r.erro };
+      usuario = r.perfil;
+      await Supa.hidratar();
+      OB.log('Acesso ao painel', usuario.email, 'info', usuario.nome);
+      return { usuario };
+    }
     const u = OB.q.usuarioPorEmail(email);
     if (!u) return { erro: 'Não encontramos uma conta com esse e-mail.' };
     const hash = await OB.hashSenha(senha);
@@ -34,6 +55,7 @@ window.Auth = (function () {
     usuario = null;
     OB.sessao.limpar();
     localStorage.removeItem('obmail_admin_origem');
+    if (nuvem()) { Supa.sair().finally(() => { location.hash = '#/'; location.reload(); }); return; }
     location.hash = '#/';
   }
 
@@ -85,6 +107,7 @@ window.Auth = (function () {
           <button type="submit" class="btn btn-primary btn-block btn-lg">Entrar</button>
         </form>
 
+        ${(window.Supa && Supa.ativo) ? '' : `
         <div class="divider mt-24 mb-16">acesso de demonstração</div>
         <div class="demo-box">
           <strong>Contas de demonstração</strong>
@@ -95,7 +118,7 @@ window.Auth = (function () {
             <button class="btn btn-sm btn-ghost" data-demo="cliente">Entrar como cliente</button>
           </div>
           <p class="xs" style="margin-top:10px;opacity:.85">O seu acesso de administrador é o <code>felipe@outboxgroup.com.br</code> com a senha que você definiu. Pelo painel de admin, em Clientes, você abre o painel de qualquer cliente para ver o lado deles.</p>
-        </div>
+        </div>`}
       </div>
       <p class="center small soft mt-24">Ainda não tem conta?
         <a href="#/contratar" style="color:var(--brand);font-weight:600">Contratar o OutBox Mail</a>
@@ -143,6 +166,23 @@ window.Auth = (function () {
   }
 
   function telaRecuperar() {
+    if (window.Supa && Supa.ativo) {
+      return `<div class="auth-page fade-in"><div class="auth-card">
+        ${cabecalho('Recuperar acesso', 'Vamos te enviar um link de redefinição por e-mail.')}
+        <div class="card">
+          <form id="f-rec" class="col" style="gap:16px" novalidate>
+            <div class="field">
+              <label for="r-email">E-mail cadastrado</label>
+              <input type="email" id="r-email" class="input" placeholder="voce@suaempresa.com.br" required>
+            </div>
+            <div id="r-erro" class="field-error hidden" role="alert"></div>
+            <button type="submit" class="btn btn-primary btn-block">Enviar link de redefinição</button>
+            <a href="#/entrar" class="btn btn-ghost btn-block">Voltar para o login</a>
+          </form>
+          <p class="xs muted mt-16">Se não chegar em alguns minutos, verifique o spam ou fale com o nosso suporte.</p>
+        </div>
+      </div></div>`;
+    }
     return `<div class="auth-page fade-in"><div class="auth-card">
       ${cabecalho('Recuperar acesso', 'Enviamos um código de verificação para o seu e-mail de contato.')}
       <div class="card">
@@ -162,6 +202,26 @@ window.Auth = (function () {
   function ligarRecuperar() {
     const f = document.getElementById('f-rec');
     if (!f) return;
+
+    /* modo nuvem: usa o e-mail de redefinição do Supabase Auth */
+    if (window.Supa && Supa.ativo) {
+      f.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('r-email').value.trim().toLowerCase();
+        const erro = document.getElementById('r-erro');
+        erro.classList.add('hidden');
+        if (!UI.emailValido(email)) return mostrarErro(erro, 'Informe um e-mail válido.');
+        const btn = f.querySelector('button[type="submit"]');
+        const parar = UI.carregando(btn, 'Enviando');
+        try {
+          await Supa.client.auth.resetPasswordForEmail(email, { redirectTo: location.origin + '/emails' });
+        } catch (err) { /* não revela se o e-mail existe */ }
+        parar();
+        UI.toast('ok', 'Verifique seu e-mail', 'Se houver uma conta com esse endereço, enviamos o link de redefinição.');
+        location.hash = '#/entrar';
+      });
+      return;
+    }
     f.addEventListener('submit', (e) => {
       e.preventDefault();
       const email = document.getElementById('r-email').value.trim();

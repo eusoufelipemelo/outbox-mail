@@ -213,9 +213,9 @@ window.App = (function () {
   /* ============================================================
      INICIALIZAÇÃO
      ============================================================ */
-  function iniciar() {
+  async function iniciar() {
     UI.aplicarTema(OB.tema.ler());
-    Auth.restaurar();
+    await Auth.restaurar();
 
     /*
       Entrada dedicada dos clientes: mail.outboxgroup.com.br/emails

@@ -1090,13 +1090,30 @@ window.Site = (function () {
           return;
         }
         const parar = UI.carregando(bf, 'Processando');
-        setTimeout(async () => {
-          const { conta, usuario } = OB.criarConta({
+        const dom = ped.dominio;
+        const finalizar = async () => {
+          /* ----- MODO NUVEM: Supabase Auth + provisionamento ----- */
+          if (window.Supa && Supa.ativo) {
+            const r = await Supa.registrar({
+              empresa: ped.empresa, doc: ped.doc, contato: ped.contato,
+              email: ped.email, senha: ped.senha, telefone: ped.telefone,
+              cidade: ped.cidade, uf: ped.uf,
+              dominio: dom, planoId: ped.planoId, ciclo: ped.ciclo, qtd: ped.qtd,
+            });
+            parar();
+            if (r.erro) return UI.toast('err', 'Não foi possível concluir', r.erro);
+            await Auth.restaurar();
+            ped = null;
+            UI.toast('ok', 'Contratação concluída', 'Criamos contato@' + dom + '. Agora falta apontar o DNS.');
+            location.hash = '#/app';
+            return;
+          }
+          /* ----- MODO DEMO: localStorage ----- */
+          const { conta } = OB.criarConta({
             empresa: ped.empresa, doc: ped.doc, tipo: UI.soDigitos(ped.doc).length > 11 ? 'pj' : 'pf',
             contato: ped.contato, email: ped.email, senha: await OB.hashSenha(ped.senha),
             telefone: ped.telefone, cidade: ped.cidade, uf: ped.uf, origem: 'site',
           });
-          const dom = ped.dominio;
           OB.criarDominio({
             contaId: conta.id, dominio: dom,
             planoId: ped.planoId, ciclo: ped.ciclo, qtd: ped.qtd,
@@ -1107,7 +1124,8 @@ window.Site = (function () {
           ped = null;
           UI.toast('ok', 'Contratação concluída', 'Criamos contato@' + dom + '. Agora falta apontar o DNS.');
           location.hash = '#/app';
-        }, 900);
+        };
+        setTimeout(finalizar, 300);
       });
     }
   }

@@ -8,6 +8,9 @@ window.OB = (function () {
   const KEY_SESSAO = 'obmail_sessao';
   const KEY_TEMA = 'obmail_tema';
 
+  /* modo nuvem: quando true, a verdade é o Supabase (ver supa.js/app.js) */
+  let nuvem = false;
+
   /* ---------- utilidades ---------- */
   const uid = (p) => p + '_' + Math.random().toString(36).slice(2, 9);
 
@@ -378,9 +381,13 @@ window.OB = (function () {
     return db;
   }
   function salvar() {
+    /* em modo nuvem a verdade é o Supabase; não persistimos o cache local */
+    if (nuvem) return;
     try { localStorage.setItem(KEY, JSON.stringify(db)); }
     catch (e) { console.warn('Não foi possível salvar localmente.', e); }
   }
+  /* atalho para o write-through, inerte fora do modo nuvem */
+  const S = () => (nuvem && window.Supa && Supa.ativo ? Supa : null);
   function resetar() { localStorage.removeItem(KEY); db = seed(); salvar(); return db; }
 
   /* ---------- consultas ---------- */
@@ -405,12 +412,15 @@ window.OB = (function () {
 
   /* ---------- escritas ---------- */
   function log(acao, alvo, tipo, ator) {
-    db.logs.unshift({
-      id: uid('log'), quando: iso(hoje()),
+    const contaId = (window.Auth && Auth.conta && Auth.conta()) ? Auth.conta().id : null;
+    const entry = {
+      id: uid('log'), conta_id: contaId, quando: iso(hoje()),
       ator: ator || (window.Auth && Auth.atual() ? Auth.atual().nome : 'Sistema'),
       acao, alvo: alvo || '', tipo: tipo || 'info',
-    });
+    };
+    db.logs.unshift(entry);
     db.logs = db.logs.slice(0, 200);
+    const s = S(); if (s) s.log(entry);
     salvar();
   }
 
@@ -496,6 +506,7 @@ window.OB = (function () {
       criado_em: iso(hoje()), ultimo_acesso: null,
     };
     db.caixas.push(caixa);
+    const s1 = S(); if (s1) s1.upsert('caixas', caixa);
     if (caixa.tipo === 'caixa') sincronizarAssinatura(dominioId);
     salvar();
     log(tipo === 'caixa' ? 'Caixa criada' : 'Apelido criado', caixa.local + '@' + dom.dominio, 'ok');
@@ -507,6 +518,7 @@ window.OB = (function () {
     if (!c) return;
     const dom = q.dominioPorId(c.dominio_id);
     db.caixas = db.caixas.filter((x) => x.id !== id);
+    const s = S(); if (s) s.del('caixas', id);
     if (c.tipo === 'caixa') sincronizarAssinatura(c.dominio_id);
     salvar();
     log('Endereço removido', c.local + '@' + (dom ? dom.dominio : ''), 'alerta');
@@ -521,12 +533,26 @@ window.OB = (function () {
     a.valor_unit = precoUnit(a.plano_id, a.ciclo);
     a.valor_total = +(a.valor_unit * qtd).toFixed(2);
     a.valor_ciclo = +(totalCiclo(a.plano_id, a.ciclo) * qtd).toFixed(2);
+    const s = S(); if (s) s.update('assinaturas', a.id, { qtd: a.qtd, valor_unit: a.valor_unit, valor_total: a.valor_total, valor_ciclo: a.valor_ciclo });
     salvar();
   }
 
+  const TABELA = { caixas: 'caixas', dominios: 'dominios', assinaturas: 'assinaturas', contas: 'contas', faturas: 'faturas', chamados: 'chamados' };
   function atualizar(colecao, id, campos) {
     const item = (db[colecao] || []).find((x) => x.id === id);
-    if (item) { Object.assign(item, campos); salvar(); }
+    if (item) {
+      Object.assign(item, campos);
+      const s = S();
+      if (s) {
+        if (colecao === 'usuarios') {
+          const { senha, ...perfilCampos } = campos; // senha é do Auth, não vai para perfis
+          if (Object.keys(perfilCampos).length) s.update('perfis', id, perfilCampos);
+        } else if (TABELA[colecao]) {
+          s.update(TABELA[colecao], id, campos);
+        }
+      }
+      salvar();
+    }
     return item;
   }
 
@@ -534,13 +560,20 @@ window.OB = (function () {
     const f = db.faturas.find((x) => x.id === id);
     if (!f) return;
     f.status = 'paga'; f.pago_em = iso(hoje()); f.metodo = metodo || 'Pix';
+    const s = S();
+    if (s) s.update('faturas', f.id, { status: 'paga', pago_em: f.pago_em, metodo: f.metodo });
     const a = db.assinaturas.find((x) => x.id === f.assinatura_id);
     if (a && a.status === 'inadimplente') {
       a.status = 'ativa';
+      if (s) s.update('assinaturas', a.id, { status: 'ativa' });
       const dom = q.dominioPorId(a.dominio_id);
       if (dom && dom.status === 'suspenso') {
         dom.status = 'ativo';
-        db.caixas.filter((c) => c.dominio_id === dom.id).forEach((c) => { c.status = 'ativa'; });
+        if (s) s.update('dominios', dom.id, { status: 'ativo' });
+        db.caixas.filter((c) => c.dominio_id === dom.id).forEach((c) => {
+          c.status = 'ativa';
+          if (s) s.update('caixas', c.id, { status: 'ativa' });
+        });
       }
     }
     salvar();
@@ -616,10 +649,12 @@ window.OB = (function () {
 
   return {
     get db() { return db; },
+    get nuvem() { return nuvem; },
+    set nuvem(v) { nuvem = !!v; },
     PLANOS, CICLOS, planoPor, cicloPor, mesesDe, precoUnit, totalCiclo, economiaCiclo, descontoPct,
     q, log, criarConta, criarDominio, criarCaixa, removerCaixa,
     sincronizarAssinatura, atualizar, pagarFatura, metricas,
-    salvar, resetar, sessao, tema, hashSenha,
+    salvar, resetar, sessao, tema, hashSenha, senhaAleatoria,
     uid, money, num, pct, fdate, fdatetime, desde, gb, addMeses, addDias, mesRotulo,
     corDe, iniciais,
   };

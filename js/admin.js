@@ -625,6 +625,7 @@ window.Admin = (function () {
         const c = OB.db.cupons.find((x) => x.codigo === b.getAttribute('data-cupom'));
         c.ativo = !c.ativo;
         OB.salvar();
+        if (window.Supa && Supa.ativo) Supa.cupom(c);
         OB.log((c.ativo ? 'Cupom ativado' : 'Cupom desativado'), c.codigo, 'info');
         App.rotear();
       });
@@ -638,6 +639,7 @@ window.Admin = (function () {
         const c = OB.db.chamados.find((x) => x.id === b.getAttribute('data-fechar-chamado'));
         c.status = 'fechado';
         OB.salvar();
+        if (window.Supa && Supa.ativo) Supa.update('chamados', c.id, { status: 'fechado' });
         UI.toast('ok', 'Chamado encerrado', 'O cliente foi marcado como atendido.');
         App.rotear();
       });
@@ -719,15 +721,17 @@ window.Admin = (function () {
           const cod = bd.querySelector('#cp-cod').value.trim().toUpperCase();
           if (cod.length < 3) return UI.toast('err', 'Código inválido', 'Use no mínimo 3 caracteres.');
           if (OB.db.cupons.some((c) => c.codigo === cod)) return UI.toast('err', 'Código já existe', 'Escolha outro código.');
-          OB.db.cupons.push({
+          const novoCupom = {
             codigo: cod,
             desc: bd.querySelector('#cp-desc').value.trim(),
             tipo: bd.querySelector('#cp-tipo').value,
             valor: Number(bd.querySelector('#cp-val').value) || 10,
             limite: Number(bd.querySelector('#cp-lim').value) || 0,
             usos: 0, ativo: true,
-          });
+          };
+          OB.db.cupons.push(novoCupom);
           OB.salvar();
+          if (window.Supa && Supa.ativo) Supa.cupom(novoCupom);
           OB.log('Cupom criado', cod, 'ok');
           UI.fecharModal();
           UI.toast('ok', 'Cupom criado', cod + ' já pode ser usado no checkout.');
