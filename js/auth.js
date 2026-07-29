@@ -26,6 +26,8 @@ window.Auth = (function () {
   }
   const atual = () => usuario;
   const ehAdmin = () => !!usuario && usuario.papel === 'admin';
+  const nivel = () => (usuario && usuario.nivel) || (ehAdmin() ? 'gestor' : null);
+  const ehMaster = () => nivel() === 'master';
   const conta = () => (usuario && usuario.conta_id ? OB.q.contaPorId(usuario.conta_id) : null);
 
   async function entrar(email, senha) {
@@ -264,5 +266,5 @@ window.Auth = (function () {
     });
   }
 
-  return { restaurar, atual, ehAdmin, conta, entrar, sair, verComoCliente, ehImpersonando, voltarAoAdmin, telaLogin, ligarLogin, telaRecuperar, ligarRecuperar };
+  return { restaurar, atual, ehAdmin, nivel, ehMaster, conta, entrar, sair, verComoCliente, ehImpersonando, voltarAoAdmin, telaLogin, ligarLogin, telaRecuperar, ligarRecuperar };
 })();

@@ -20,6 +20,8 @@ window.Admin = (function () {
       { sec: 'Sistema' },
       { id: 'chamados', rota: '#/admin/chamados', nome: 'Chamados', ico: 'help', count: m.chamadosAbertos || null },
       { id: 'logs', rota: '#/admin/logs', nome: 'Registro de atividade', ico: 'activity' },
+      ...(window.Auth && Auth.ehMaster() ? [{ id: 'equipe', rota: '#/admin/equipe', nome: 'Equipe e admins', ico: 'shield' }] : []),
+      { id: 'conta', rota: '#/admin/conta', nome: 'Minha conta', ico: 'settings' },
     ].map((i) => ({ ...i, ativo: i.id === ativo }));
   }
 
@@ -165,7 +167,10 @@ window.Admin = (function () {
     const conteudo = `
       <div class="row-between mb-24 wrap-gap">
         <input class="input" id="busca-cliente" placeholder="Buscar por empresa, responsável ou domínio" style="max-width:340px">
-        <span class="small muted">${OB.db.contas.length} ${OB.db.contas.length === 1 ? 'cliente' : 'clientes'} cadastrados</span>
+        <div class="row" style="gap:10px">
+          <span class="small muted">${OB.db.contas.length} ${OB.db.contas.length === 1 ? 'cliente' : 'clientes'}</span>
+          <button class="btn btn-primary btn-sm" id="b-novo-cliente">${ico('userPlus')} Novo cliente</button>
+        </div>
       </div>
       <div id="lista-clientes">${tabelaClientes(OB.db.contas)}</div>`;
     return App.shell({ itens: menu('clientes'), titulo: 'Clientes', sub: 'Todas as contas do OutBox Mail.', conteudo });
@@ -245,13 +250,15 @@ window.Admin = (function () {
             <span class="row" style="gap:10px"><span class="t-strong">${OB.money(f.valor)}</span>${UI.badge(f.status)}</span>
           </div>`).join('') || '<p class="small muted">Sem faturas.</p>'}
         </div>`,
-      acoes: `<a class="btn btn-ghost" href="${Site.wppLink('Olá ' + (u ? u.nome.split(' ')[0] : '') + '! Aqui é da OutBox Soluções Digitais.')}" target="_blank" rel="noopener">${ico('whatsapp')} WhatsApp</a>
-              <button class="btn btn-primary" data-ver-cliente="${id}">${ico('eye')} Abrir painel do cliente</button>`,
+      acoes: `<button class="btn btn-ghost" data-add-dominio="${id}">${ico('globe')} Adicionar domínio</button>
+              <button class="btn btn-primary" data-ver-cliente="${id}">${ico('eye')} Abrir painel</button>`,
       aoAbrir: (bd) => {
         const b = bd.querySelector('[data-ver-cliente]');
         if (b) b.addEventListener('click', () => {
           if (Auth.verComoCliente(id)) { UI.fecharModal(); location.hash = '#/app'; }
         });
+        const bd2 = bd.querySelector('[data-add-dominio]');
+        if (bd2) bd2.addEventListener('click', () => { UI.fecharModal(); modalDominio(id); });
       },
     });
   }
@@ -557,10 +564,263 @@ window.Admin = (function () {
   }
 
   /* ============================================================
+     EQUIPE E ADMINS (somente master)
+     ============================================================ */
+  const NIVEIS = { master: 'Master', gestor: 'Gestor', suporte: 'Suporte' };
+  function equipe() {
+    const admins = OB.db.usuarios.filter((u) => u.papel === 'admin' || u.papel === 'suporte');
+    const conteudo = `
+      <div class="row-between mb-24 wrap-gap">
+        <p class="small muted">Master faz tudo, inclusive gerir a equipe. Gestor cuida de clientes e domínios. Suporte acompanha e atende.</p>
+        <button class="btn btn-primary btn-sm" id="b-novo-admin">${ico('userPlus')} Novo admin</button>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Nome</th><th>E-mail</th><th>Nível</th><th>Status</th><th class="td-right">Ações</th></tr></thead>
+        <tbody>
+          ${admins.map((a) => `<tr>
+            <td class="t-strong">${E(a.nome)}</td>
+            <td class="small">${E(a.email)}</td>
+            <td>${a.id === Auth.atual().id
+              ? `<span class="badge badge-brand">${NIVEIS[a.nivel] || 'Gestor'}</span>`
+              : `<select class="select" data-nivel="${a.id}" style="min-height:38px;max-width:150px">
+                  ${Object.entries(NIVEIS).map(([v, n]) => `<option value="${v}" ${(a.nivel || 'gestor') === v ? 'selected' : ''}>${n}</option>`).join('')}
+                </select>`}</td>
+            <td>${a.ativo === false ? UI.badge('cancelado') : UI.badge('ativo')}</td>
+            <td class="td-right">${a.id === Auth.atual().id ? '<span class="xs muted">você</span>'
+              : `<button class="btn btn-sm btn-ghost" data-toggle-admin="${a.id}">${a.ativo === false ? 'Reativar' : 'Desativar'}</button>`}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>`;
+    return App.shell({ itens: menu('equipe'), titulo: 'Equipe e admins', sub: 'Quem tem acesso ao painel administrativo.', conteudo });
+  }
+
+  /* ============================================================
+     MINHA CONTA (admin edita o próprio perfil)
+     ============================================================ */
+  function conta() {
+    const u = Auth.atual();
+    const conteudo = `
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">
+        <div class="card">
+          <div class="card-head"><span class="card-title">Meus dados</span>${UI.badge('ativo')}</div>
+          <div class="row mb-24" style="gap:14px">
+            <span class="avatar avatar-lg" style="background:${OB.corDe(u.nome)}">${OB.iniciais(u.nome)}</span>
+            <div><div class="t-strong">${E(u.nome)}</div><div class="small muted">${E(u.email)} · ${NIVEIS[Auth.nivel()] || 'Admin'}</div></div>
+          </div>
+          <form id="f-perfil-admin" class="col" style="gap:14px">
+            <div class="field"><label for="pa-nome">Nome</label><input id="pa-nome" class="input" value="${E(u.nome)}"></div>
+            <div class="field"><label for="pa-tel">Telefone</label><input id="pa-tel" class="input" value="${E(u.telefone || '')}"></div>
+            <button class="btn btn-primary" type="submit">Salvar dados</button>
+          </form>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="card-title">Trocar senha</span></div>
+          <form id="f-senha-admin" class="col" style="gap:14px">
+            <div class="field"><label for="pa-nova">Nova senha</label>${UI.campoSenha('pa-nova', 'Mínimo de 8 caracteres', 'new-password')}</div>
+            <button class="btn btn-ghost" type="submit">Trocar senha</button>
+          </form>
+          <div class="mt-24" style="padding-top:16px;border-top:1px solid var(--border)">
+            <button class="btn btn-danger btn-sm" id="b-sair-admin">${ico('logout')} Sair da conta</button>
+          </div>
+        </div>
+      </div>`;
+    return App.shell({ itens: menu('conta'), titulo: 'Minha conta', sub: 'Seus dados de administrador.', conteudo });
+  }
+
+  /* ---------- modais de cadastro ---------- */
+  function selectPlano(id) {
+    return `<select id="${id}" class="select">${OB.PLANOS.map((p) => `<option value="${p.id}" ${p.destaque ? 'selected' : ''}>${E(p.nome)} · ${p.cota_gb} GB</option>`).join('')}</select>`;
+  }
+  function selectCiclo(id) {
+    return `<select id="${id}" class="select">${OB.CICLOS.map((c) => `<option value="${c.id}">${E(c.nome)}</option>`).join('')}</select>`;
+  }
+
+  function modalNovoCliente() {
+    const senha = OB.senhaAleatoria(10);
+    UI.modal({
+      titulo: 'Novo cliente', sub: 'Cria a conta, o login e, se quiser, o primeiro domínio.', largo: true,
+      corpo: `
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
+          <div class="field"><label for="nc-empresa">Empresa</label><input id="nc-empresa" class="input" placeholder="Nome da empresa"></div>
+          <div class="field"><label for="nc-doc">CNPJ ou CPF</label><input id="nc-doc" class="input" inputmode="numeric"></div>
+          <div class="field"><label for="nc-contato">Responsável</label><input id="nc-contato" class="input"></div>
+          <div class="field"><label for="nc-tel">Telefone</label><input id="nc-tel" class="input" inputmode="tel"></div>
+          <div class="field"><label for="nc-cidade">Cidade</label><input id="nc-cidade" class="input"></div>
+          <div class="field"><label for="nc-uf">UF</label><input id="nc-uf" class="input" maxlength="2" placeholder="SP"></div>
+        </div>
+        <div class="field"><label for="nc-email">E-mail de acesso do cliente</label><input id="nc-email" type="email" class="input" placeholder="cliente@empresa.com.br"></div>
+        <div class="field">
+          <label for="nc-senha">Senha inicial (entregue ao cliente)</label>
+          <div class="input-group"><input id="nc-senha" class="input mono" value="${senha}"><button class="addon clickable" type="button" id="nc-gerar">Gerar</button></div>
+          <span class="field-hint">O cliente pode trocar depois em Dados e senha.</span>
+        </div>
+        <label class="check"><input type="checkbox" id="nc-comdom" checked><span class="small soft">Já criar um domínio para este cliente</span></label>
+        <div id="nc-dom-wrap" class="grid" style="grid-template-columns:1fr 1fr 1fr;gap:12px">
+          <div class="field" style="grid-column:1/-1"><label for="nc-dom">Domínio</label><input id="nc-dom" class="input" placeholder="empresa.com.br"></div>
+          <div class="field"><label for="nc-plano">Plano</label>${selectPlano('nc-plano')}</div>
+          <div class="field"><label for="nc-ciclo">Ciclo</label>${selectCiclo('nc-ciclo')}</div>
+          <div class="field"><label for="nc-qtd">Caixas contratadas</label><input id="nc-qtd" class="input" type="number" min="1" value="1"></div>
+        </div>
+        <div class="field-error hidden" id="nc-erro" role="alert"></div>`,
+      acoes: `<button class="btn btn-ghost" data-fechar>Cancelar</button><button class="btn btn-primary" id="nc-ok">Cadastrar cliente</button>`,
+      aoAbrir: (bd) => {
+        UI.ligarMascara(bd.querySelector('#nc-doc'), UI.mascaraDoc);
+        UI.ligarMascara(bd.querySelector('#nc-tel'), UI.mascaraTel);
+        bd.querySelector('#nc-gerar').addEventListener('click', () => { bd.querySelector('#nc-senha').value = OB.senhaAleatoria(10); });
+        const chk = bd.querySelector('#nc-comdom'); const wrap = bd.querySelector('#nc-dom-wrap');
+        const sync = () => { wrap.style.display = chk.checked ? '' : 'none'; };
+        chk.addEventListener('change', sync); sync();
+        bd.querySelector('#nc-ok').addEventListener('click', async (e) => {
+          const v = (id) => (bd.querySelector('#' + id) || {}).value || '';
+          const erro = bd.querySelector('#nc-erro'); erro.classList.add('hidden');
+          const falhar = (m) => { erro.textContent = m; erro.classList.remove('hidden'); };
+          if (v('nc-empresa').trim().length < 2) return falhar('Informe a empresa.');
+          if (v('nc-contato').trim().length < 2) return falhar('Informe o responsável.');
+          if (!UI.emailValido(v('nc-email'))) return falhar('E-mail de acesso inválido.');
+          if (v('nc-senha').length < 6) return falhar('A senha inicial precisa ter ao menos 6 caracteres.');
+          const comDom = chk.checked;
+          if (comDom && !UI.dominioValido(v('nc-dom'))) return falhar('Informe um domínio válido ou desmarque a opção.');
+          const parar = UI.carregando(e.currentTarget, 'Cadastrando');
+          const r = await Supa.criarCliente({
+            empresa: v('nc-empresa').trim(), doc: v('nc-doc').trim(), contato: v('nc-contato').trim(),
+            email: v('nc-email').trim(), senha: v('nc-senha'), telefone: v('nc-tel').trim(),
+            cidade: v('nc-cidade').trim(), uf: v('nc-uf').trim().toUpperCase(),
+            dominio: comDom ? v('nc-dom').trim() : null, planoId: v('nc-plano'), ciclo: v('nc-ciclo'), qtd: Number(v('nc-qtd')) || 1,
+          });
+          parar();
+          if (r.erro) return falhar(r.erro);
+          UI.fecharModal();
+          UI.toast('ok', 'Cliente cadastrado', 'Login criado. Entregue a senha inicial ao cliente.');
+          App.rotear();
+        });
+      },
+    });
+  }
+
+  function modalDominio(contaId) {
+    const c = OB.q.contaPorId(contaId);
+    UI.modal({
+      titulo: 'Adicionar domínio', sub: c ? c.empresa : '',
+      corpo: `
+        <div class="field"><label for="ad-dom">Domínio</label><input id="ad-dom" class="input" placeholder="empresa.com.br"></div>
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
+          <div class="field"><label for="ad-plano">Plano</label>${selectPlano('ad-plano')}</div>
+          <div class="field"><label for="ad-ciclo">Ciclo</label>${selectCiclo('ad-ciclo')}</div>
+        </div>
+        <div class="field"><label for="ad-qtd">Caixas contratadas</label><input id="ad-qtd" class="input" type="number" min="1" value="1"></div>
+        <div class="field-error hidden" id="ad-erro" role="alert"></div>`,
+      acoes: `<button class="btn btn-ghost" data-fechar>Cancelar</button><button class="btn btn-primary" id="ad-ok">Adicionar</button>`,
+      aoAbrir: (bd) => {
+        bd.querySelector('#ad-ok').addEventListener('click', async (e) => {
+          const erro = bd.querySelector('#ad-erro'); erro.classList.add('hidden');
+          const dom = bd.querySelector('#ad-dom').value.trim();
+          if (!UI.dominioValido(dom)) { erro.textContent = 'Informe um domínio válido.'; erro.classList.remove('hidden'); return; }
+          if (OB.q.dominioPorNome(dom)) { erro.textContent = 'Esse domínio já está cadastrado.'; erro.classList.remove('hidden'); return; }
+          const parar = UI.carregando(e.currentTarget, 'Adicionando');
+          const r = await Supa.adicionarDominio({ contaId, dominio: dom, planoId: bd.querySelector('#ad-plano').value, ciclo: bd.querySelector('#ad-ciclo').value, qtd: Number(bd.querySelector('#ad-qtd').value) || 1 });
+          parar();
+          if (r.erro) { erro.textContent = r.erro; erro.classList.remove('hidden'); return; }
+          UI.fecharModal();
+          UI.toast('ok', 'Domínio adicionado', 'Agora falta o cliente apontar o DNS.');
+          App.rotear();
+        });
+      },
+    });
+  }
+
+  function modalNovoAdmin() {
+    const senha = OB.senhaAleatoria(10);
+    UI.modal({
+      titulo: 'Novo administrador', sub: 'Cria um acesso ao painel administrativo.',
+      corpo: `
+        <div class="field"><label for="na-nome">Nome</label><input id="na-nome" class="input"></div>
+        <div class="field"><label for="na-email">E-mail</label><input id="na-email" type="email" class="input" placeholder="pessoa@outboxgroup.com.br"></div>
+        <div class="field"><label for="na-nivel">Nível</label>
+          <select id="na-nivel" class="select"><option value="gestor">Gestor (clientes e domínios)</option><option value="suporte">Suporte (acompanha e atende)</option><option value="master">Master (acesso total)</option></select>
+        </div>
+        <div class="field">
+          <label for="na-senha">Senha inicial</label>
+          <div class="input-group"><input id="na-senha" class="input mono" value="${senha}"><button class="addon clickable" type="button" id="na-gerar">Gerar</button></div>
+        </div>
+        <div class="field-error hidden" id="na-erro" role="alert"></div>`,
+      acoes: `<button class="btn btn-ghost" data-fechar>Cancelar</button><button class="btn btn-primary" id="na-ok">Criar admin</button>`,
+      aoAbrir: (bd) => {
+        bd.querySelector('#na-gerar').addEventListener('click', () => { bd.querySelector('#na-senha').value = OB.senhaAleatoria(10); });
+        bd.querySelector('#na-ok').addEventListener('click', async (e) => {
+          const erro = bd.querySelector('#na-erro'); erro.classList.add('hidden');
+          const nome = bd.querySelector('#na-nome').value.trim();
+          const email = bd.querySelector('#na-email').value.trim();
+          const senhaV = bd.querySelector('#na-senha').value;
+          if (nome.length < 2) { erro.textContent = 'Informe o nome.'; erro.classList.remove('hidden'); return; }
+          if (!UI.emailValido(email)) { erro.textContent = 'E-mail inválido.'; erro.classList.remove('hidden'); return; }
+          if (senhaV.length < 6) { erro.textContent = 'Senha muito curta.'; erro.classList.remove('hidden'); return; }
+          const parar = UI.carregando(e.currentTarget, 'Criando');
+          const r = await Supa.criarAdmin({ nome, email, senha: senhaV, nivel: bd.querySelector('#na-nivel').value });
+          parar();
+          if (r.erro) { erro.textContent = r.erro; erro.classList.remove('hidden'); return; }
+          UI.fecharModal();
+          UI.toast('ok', 'Admin criado', 'Entregue o e-mail e a senha inicial à pessoa.');
+          App.rotear();
+        });
+      },
+    });
+  }
+
+  /* ============================================================
      EVENTOS
      ============================================================ */
   function ligar() {
     desenharGraficos();
+
+    const bncli = document.getElementById('b-novo-cliente');
+    if (bncli) bncli.addEventListener('click', modalNovoCliente);
+
+    const bna = document.getElementById('b-novo-admin');
+    if (bna) bna.addEventListener('click', modalNovoAdmin);
+
+    document.querySelectorAll('[data-nivel]').forEach((s) => {
+      s.addEventListener('change', async () => {
+        const r = await Supa.salvarPerfil(s.getAttribute('data-nivel'), { nivel: s.value });
+        if (r.erro) return UI.toast('err', 'Não foi possível', r.erro);
+        UI.toast('ok', 'Nível atualizado', 'A hierarquia foi salva.');
+      });
+    });
+    document.querySelectorAll('[data-toggle-admin]').forEach((b) => {
+      b.addEventListener('click', async () => {
+        const id = b.getAttribute('data-toggle-admin');
+        const u = OB.q.usuarioPorId(id);
+        const r = await Supa.salvarPerfil(id, { ativo: !(u.ativo !== false) });
+        if (r.erro) return UI.toast('err', 'Não foi possível', r.erro);
+        UI.toast('ok', 'Atualizado', 'Status do admin alterado.');
+        App.rotear();
+      });
+    });
+
+    const fpa = document.getElementById('f-perfil-admin');
+    if (fpa) {
+      UI.ligarMascara(document.getElementById('pa-tel'), UI.mascaraTel);
+      fpa.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const r = await Supa.salvarPerfil(Auth.atual().id, { nome: document.getElementById('pa-nome').value.trim(), telefone: document.getElementById('pa-tel').value.trim() });
+        if (r.erro) return UI.toast('err', 'Não foi possível', r.erro);
+        UI.toast('ok', 'Dados salvos', 'Seu perfil foi atualizado.');
+        App.rotear();
+      });
+    }
+    const fsa = document.getElementById('f-senha-admin');
+    if (fsa) {
+      fsa.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const nova = document.getElementById('pa-nova').value;
+        if (nova.length < 8) return UI.toast('err', 'Senha curta', 'Use no mínimo 8 caracteres.');
+        const r = await Supa.trocarMinhaSenha(nova);
+        if (r.erro) return UI.toast('err', 'Não foi possível', r.erro);
+        fsa.reset();
+        UI.toast('ok', 'Senha alterada', 'Sua nova senha já está valendo.');
+      });
+    }
+    const bsa = document.getElementById('b-sair-admin');
+    if (bsa) bsa.addEventListener('click', () => Auth.sair());
 
     const bc = document.getElementById('busca-cliente');
     if (bc) {
@@ -741,5 +1001,5 @@ window.Admin = (function () {
     });
   }
 
-  return { dash, clientes, dominios, caixas, financeiro, planos, cupons, chamados, logs, ligar, menu, desenharGraficos };
+  return { dash, clientes, dominios, caixas, financeiro, planos, cupons, chamados, logs, equipe, conta, ligar, menu, desenharGraficos };
 })();

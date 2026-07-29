@@ -136,7 +136,8 @@ window.App = (function () {
       const mapa = {
         '': Admin.dash, clientes: Admin.clientes, dominios: Admin.dominios, caixas: Admin.caixas,
         financeiro: Admin.financeiro, planos: Admin.planos, cupons: Admin.cupons,
-        chamados: Admin.chamados, logs: Admin.logs,
+        chamados: Admin.chamados, logs: Admin.logs, conta: Admin.conta,
+        equipe: (Auth.ehMaster && Auth.ehMaster()) ? Admin.equipe : Admin.dash,
       };
       html = (mapa[sub] || Admin.dash)();
       depois = () => { ligarShell(); Admin.ligar(); };

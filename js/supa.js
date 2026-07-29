@@ -160,5 +160,126 @@ window.Supa = (function () {
     return { perfil: perfilLogado };
   }
 
-  return { ativo, get client() { return sb; }, sessao, perfil, entrar, sair, hidratar, upsert, update, del, log, cupom, registrar };
+  /* ---------------- administração (criar usuários) ----------------
+     Cria o login de outro usuário SEM derrubar a sessão do admin,
+     usando um cliente Supabase secundário que não persiste sessão.
+     O trigger cria o perfil; o admin (equipe, via RLS) ajusta os
+     campos e provisiona conta/domínio. */
+  async function criarUsuarioAuth(email, senha, nome) {
+    const sec = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    });
+    const { data, error } = await sec.auth.signUp({ email: String(email).trim().toLowerCase(), password: senha, options: { data: { nome } } });
+    try { await sec.auth.signOut(); } catch (e) {}
+    if (error) return { erro: traduzErro(error) };
+    if (!data.user) return { erro: 'Não foi possível criar o login.' };
+    return { id: data.user.id };
+  }
+
+  async function criarCliente(d) {
+    const u = await criarUsuarioAuth(d.email, d.senha, d.contato);
+    if (u.erro) return { erro: u.erro };
+    const agora = new Date().toISOString();
+    const conta = {
+      id: OB.uid('cta'), empresa: d.empresa, doc: d.doc || '',
+      tipo: String(d.doc || '').replace(/\D/g, '').length > 11 ? 'pj' : 'pf',
+      telefone: d.telefone || '', cep: '', cidade: d.cidade || '', uf: d.uf || '', origem: 'admin', criado_em: agora,
+    };
+    let r = await sb.from('contas').insert(conta);
+    if (r.error) return { erro: 'Conta: ' + traduzErro(r.error) };
+    r = await sb.from('perfis').update({ conta_id: conta.id, nome: d.contato, telefone: d.telefone || '', papel: 'cliente' }).eq('id', u.id);
+    if (r.error) return { erro: 'Perfil: ' + traduzErro(r.error) };
+
+    if (d.dominio) {
+      const plano = OB.planoPor(d.planoId);
+      const unit = OB.precoUnit(d.planoId, d.ciclo);
+      const prox = new Date(); prox.setDate(prox.getDate() + 7);
+      const dom = {
+        id: OB.uid('dom'), conta_id: conta.id, dominio: String(d.dominio).toLowerCase().trim(),
+        status: 'pendente', plano_id: d.planoId, ciclo: d.ciclo, dkim_selector: 'obmail',
+        dns: { mx: false, spf: false, dkim: false, dmarc: false }, criado_em: agora, ativado_em: null,
+      };
+      r = await sb.from('dominios').insert(dom);
+      if (r.error) return { erro: 'Domínio: ' + traduzErro(r.error) };
+      await sb.from('caixas').insert({
+        id: OB.uid('cx'), dominio_id: dom.id, conta_id: conta.id, local: 'contato',
+        nome: 'Contato ' + d.empresa, tipo: 'caixa', destino: '', cota_gb: plano.cota, usado_mb: 0,
+        status: 'ativa', senha_inicial: OB.senhaAleatoria(), criado_em: agora, ultimo_acesso: null,
+      });
+      const assin = {
+        id: OB.uid('asn'), conta_id: conta.id, dominio_id: dom.id, plano_id: d.planoId, ciclo: d.ciclo,
+        qtd: 1, qtd_contratada: d.qtd || 1, valor_unit: unit, valor_total: unit,
+        valor_ciclo: OB.totalCiclo(d.planoId, d.ciclo), status: 'trial', proxima_cobranca: prox.toISOString(), criado_em: agora,
+      };
+      await sb.from('assinaturas').insert(assin);
+      await sb.from('faturas').insert({
+        id: OB.uid('fat'), numero: String(Date.now()).slice(-6), conta_id: conta.id, assinatura_id: assin.id,
+        competencia: agora, valor: OB.totalCiclo(d.planoId, d.ciclo), vencimento: prox.toISOString(),
+        status: 'aberta', metodo: null, pago_em: null, criado_em: agora,
+      });
+    }
+    log({ id: OB.uid('log'), conta_id: conta.id, ator: (window.Auth && Auth.atual()) ? Auth.atual().nome : 'Admin', acao: 'Cliente cadastrado pelo admin', alvo: d.empresa, tipo: 'ok', quando: agora });
+    await hidratar();
+    return { ok: true };
+  }
+
+  /* adiciona um domínio a um cliente que já existe */
+  async function adicionarDominio(d) {
+    const agora = new Date().toISOString();
+    const plano = OB.planoPor(d.planoId);
+    const unit = OB.precoUnit(d.planoId, d.ciclo);
+    const prox = new Date(); prox.setDate(prox.getDate() + 7);
+    const dom = {
+      id: OB.uid('dom'), conta_id: d.contaId, dominio: String(d.dominio).toLowerCase().trim(),
+      status: 'pendente', plano_id: d.planoId, ciclo: d.ciclo, dkim_selector: 'obmail',
+      dns: { mx: false, spf: false, dkim: false, dmarc: false }, criado_em: agora, ativado_em: null,
+    };
+    let r = await sb.from('dominios').insert(dom);
+    if (r.error) return { erro: 'Domínio: ' + traduzErro(r.error) };
+    await sb.from('caixas').insert({
+      id: OB.uid('cx'), dominio_id: dom.id, conta_id: d.contaId, local: 'contato',
+      nome: 'Contato', tipo: 'caixa', destino: '', cota_gb: plano.cota, usado_mb: 0,
+      status: 'ativa', senha_inicial: OB.senhaAleatoria(), criado_em: agora, ultimo_acesso: null,
+    });
+    const assin = {
+      id: OB.uid('asn'), conta_id: d.contaId, dominio_id: dom.id, plano_id: d.planoId, ciclo: d.ciclo,
+      qtd: 1, qtd_contratada: d.qtd || 1, valor_unit: unit, valor_total: unit,
+      valor_ciclo: OB.totalCiclo(d.planoId, d.ciclo), status: 'trial', proxima_cobranca: prox.toISOString(), criado_em: agora,
+    };
+    await sb.from('assinaturas').insert(assin);
+    await sb.from('faturas').insert({
+      id: OB.uid('fat'), numero: String(Date.now()).slice(-6), conta_id: d.contaId, assinatura_id: assin.id,
+      competencia: agora, valor: OB.totalCiclo(d.planoId, d.ciclo), vencimento: prox.toISOString(),
+      status: 'aberta', metodo: null, pago_em: null, criado_em: agora,
+    });
+    log({ id: OB.uid('log'), conta_id: d.contaId, ator: (window.Auth && Auth.atual()) ? Auth.atual().nome : 'Admin', acao: 'Domínio adicionado pelo admin', alvo: dom.dominio, tipo: 'ok', quando: agora });
+    await hidratar();
+    return { ok: true };
+  }
+
+  async function criarAdmin(d) {
+    const u = await criarUsuarioAuth(d.email, d.senha, d.nome);
+    if (u.erro) return { erro: u.erro };
+    const r = await sb.from('perfis').update({ papel: 'admin', nivel: d.nivel || 'gestor', nome: d.nome }).eq('id', u.id);
+    if (r.error) return { erro: traduzErro(r.error) };
+    await hidratar();
+    return { ok: true };
+  }
+
+  async function salvarPerfil(id, campos) {
+    const r = await sb.from('perfis').update(campos).eq('id', id);
+    if (r.error) return { erro: traduzErro(r.error) };
+    await hidratar();
+    return { ok: true };
+  }
+  async function trocarMinhaSenha(nova) {
+    const r = await sb.auth.updateUser({ password: nova });
+    return r.error ? { erro: traduzErro(r.error) } : { ok: true };
+  }
+
+  return {
+    ativo, get client() { return sb; }, sessao, perfil, entrar, sair, hidratar,
+    upsert, update, del, log, cupom, registrar,
+    criarCliente, adicionarDominio, criarAdmin, salvarPerfil, trocarMinhaSenha,
+  };
 })();
