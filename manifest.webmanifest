@@ -1,0 +1,16 @@
+{
+  "name": "OutBox Mail",
+  "short_name": "OutBox Mail",
+  "description": "E-mail profissional com o seu domínio, da OutBox Soluções Digitais.",
+  "lang": "pt-BR",
+  "start_url": "./#/app",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F5F7F9",
+  "theme_color": "#F15532",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}
