@@ -845,7 +845,7 @@ window.Cliente = (function () {
       titulo: 'Recibo da fatura #' + f.numero,
       corpo: `<div class="card" style="background:var(--surface-2)">
         <div class="row-between mb-16">
-          <img data-logo src="assets/logo-preta.svg" alt="OutBox" style="height:22px">
+          <img data-logo src="assets/logo-preta.svg?v=11" alt="OutBox" style="height:22px">
           <span class="badge badge-green"><span class="dot"></span>Pago</span>
         </div>
         <dl class="dl">

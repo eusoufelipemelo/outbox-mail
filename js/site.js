@@ -17,7 +17,7 @@ window.Site = (function () {
     return `<header class="site-header">
       <div class="wrap">
         <a class="logo" href="#/" aria-label="OutBox Mail, página inicial">
-          <img data-logo src="assets/logo-preta.svg" alt="OutBox">
+          <img data-logo src="assets/logo-preta.svg?v=11" alt="OutBox">
           <span class="logo-sep" aria-hidden="true"></span>
           <span class="logo-name">Mail</span>
         </a>
@@ -48,7 +48,7 @@ window.Site = (function () {
         <div class="footer-grid">
           <div>
             <a class="logo mb-16" href="#/">
-              <img data-logo src="assets/logo-preta.svg" alt="OutBox">
+              <img data-logo src="assets/logo-preta.svg?v=11" alt="OutBox">
               <span class="logo-sep" aria-hidden="true"></span>
               <span class="logo-name">Mail</span>
             </a>

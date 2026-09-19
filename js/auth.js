@@ -82,7 +82,7 @@ window.Auth = (function () {
   /* ---------- telas ---------- */
   const cabecalho = (titulo, sub) => `
     <a class="auth-logo" href="#/" aria-label="OutBox Mail, início">
-      <img data-logo src="assets/logo-preta.svg" alt="OutBox" style="height:28px">
+      <img data-logo src="assets/logo-preta.svg?v=11" alt="OutBox" style="height:28px">
     </a>
     <div class="center mb-24">
       <h1 style="font-size:1.6rem">${titulo}</h1>

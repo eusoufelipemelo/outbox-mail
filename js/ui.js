@@ -112,7 +112,7 @@ window.UI = (function () {
     document.documentElement.setAttribute('data-theme', t);
     OB.tema.salvar(t);
     document.querySelectorAll('[data-logo]').forEach((img) => {
-      img.src = t === 'dark' ? 'assets/logo-branca.svg' : 'assets/logo-preta.svg';
+      img.src = t === 'dark' ? 'assets/logo-branca.svg?v=11' : 'assets/logo-preta.svg?v=11';
     });
     document.querySelectorAll('[data-tema-ico]').forEach((b) => {
       b.innerHTML = ico(t === 'dark' ? 'sun' : 'moon');

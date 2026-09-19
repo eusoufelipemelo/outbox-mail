@@ -16,7 +16,7 @@ window.App = (function () {
       <aside class="sidebar" id="sidebar" aria-label="Menu do painel">
         <div class="sidebar-head">
           <a class="logo" href="#/">
-            <img data-logo src="assets/logo-preta.svg" alt="OutBox">
+            <img data-logo src="assets/logo-preta.svg?v=11" alt="OutBox">
             <span class="logo-sep" aria-hidden="true"></span>
             <span class="logo-name">Mail</span>
           </a>
